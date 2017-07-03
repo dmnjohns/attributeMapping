@@ -40,7 +40,7 @@ class AttributeMapperSuite extends AttributeMapperBase {
   val tests : List[File] = testDir.listFiles.toList.filter(f=>f.isDirectory)
 
   def getMapsFromTest (test : File) : List[File] = (new File(test,"maps")).listFiles().toList.filter(f => {
-    f.toString.endsWith("xml") || f.toString.endsWith("json")})
+    f.toString.endsWith("xml") || f.toString.endsWith("json") || f.toString.endsWith("yaml")})
   def getAssertsFromTest (test : File) : List[File] = (new File(test,"asserts")).listFiles().toList.filter(f => {f.toString.endsWith("xml")})
 
   type MapperTest = (File /* map */, File /* assertion */, String /* validation engine */) => Source /* Resulting assertion */
@@ -79,9 +79,16 @@ class AttributeMapperSuite extends AttributeMapperBase {
 
   runTests("Stream Source and XDM Dest", (map : File, assertFile : File, v : String) => {
     println (s"Running $map on $assertFile") // scalastyle:ignore
+    val mapFormat = map.getName.substring(map.getName.lastIndexOf('.') + 1).toLowerCase
     val dest = new XdmDestination
-    AttributeMapper.convertAssertion (new StreamSource(map), new StreamSource(assertFile), dest, true,
-                                      map.toString.endsWith("json"), true, v)
+    AttributeMapper.convertAssertion (
+      new StreamSource(map),
+      new StreamSource(assertFile),
+      dest,
+      true,
+      PolicyFormat.withName(mapFormat),
+      true,
+      v)
     dest.getXdmNode.asSource
   })
 
@@ -90,18 +97,23 @@ class AttributeMapperSuite extends AttributeMapperBase {
     var docBuilder : javax.xml.parsers.DocumentBuilder = null
     try {
       docBuilder = borrowParser
-      val isJSON = map.toString.endsWith("json")
-      val policyExec : XsltExecutable = {
-        if (isJSON) {
+      val mapFormat = map.getName.substring(map.getName.lastIndexOf('.') + 1).toLowerCase
+      val policyExec : XsltExecutable = PolicyFormat.withName(mapFormat) match {
+        case PolicyFormat.JSON =>
           val om = new ObjectMapper()
           val jsonPolicy = om.readTree(map)
           //
           //  We double validate to make sure validation call works
           //
           AttributeMapper.generateXSLExec (AttributeMapper.validatePolicy(jsonPolicy, v), true, v)
-        } else {
+        case PolicyFormat.YAML =>
+          val jsonPolicy = AttributeMapper.parseYamlNode(new StreamSource(map))
+          //
+          //  We double validate to make sure validation call works
+          //
+          AttributeMapper.generateXSLExec (AttributeMapper.validatePolicy(jsonPolicy, v), true, v)
+        case PolicyFormat.XML =>
           AttributeMapper.generateXSLExec (docBuilder.parse(map), true, v)
-        }
       }
 
       val resultDoc = AttributeMapper.convertAssertion (policyExec, docBuilder.parse(assertFile))

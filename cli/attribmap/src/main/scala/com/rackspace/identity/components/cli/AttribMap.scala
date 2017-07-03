@@ -102,6 +102,7 @@ object AttribMap {
     (new File(workingDir)).toURI().toString
   }
 
+  // todo: fix this to work with the new PolicyFormat parameter
   //
   // Local run...
   //

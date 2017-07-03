@@ -26,6 +26,7 @@ import javax.xml.validation.{Schema, SchemaFactory}
 
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper, SerializationFeature}
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
 import com.rackspace.cloud.api.wadl.util.LogErrorListener
 import com.rackspace.com.papi.components.checker.util.XMLParserPool
 import net.sf.saxon.Configuration.LicenseFeature._
@@ -39,7 +40,14 @@ object XSDEngine extends Enumeration {
   val XERCES = Value("xerces")
 }
 
+object PolicyFormat extends Enumeration {
+  val XML = Value("xml")
+  val JSON = Value("json")
+  val YAML = Value("yaml")
+}
+
 import com.rackspace.identity.components.XSDEngine._
+import com.rackspace.identity.components.PolicyFormat._
 
 object AttributeMapper {
 
@@ -274,6 +282,18 @@ object AttributeMapper {
     }
   }
 
+  def parseYamlNode (source : StreamSource) : JsonNode = {
+    val om = new ObjectMapper(new YAMLFactory())
+
+    if (source.getInputStream != null) {
+      om.readTree(source.getInputStream)
+    } else if (source.getReader != null) {
+      om.readTree(source.getReader)
+    } else {
+      om.readTree(new File(new URI(source.getSystemId)))
+    }
+  }
+
   def policy2JSON(policyXML : Source, policyJSON : Destination, validate : Boolean, xsdEngine : String) : Unit = {
     val policySrc = {
       if (validate) {
@@ -301,17 +321,26 @@ object AttributeMapper {
     evaluator.run()
   }
 
-  def convertAssertion (policy : Source, assertion : Source, dest : Destination, outputSAML : Boolean, isJSON : Boolean,
-                        validate : Boolean, xsdEngine : String) : Unit = {
+  // todo: Is it alright if the YAML support change is not backwards compatible?
+  def convertAssertion (policy : Source, assertion : Source, dest : Destination, outputSAML : Boolean,
+                        policyFormat : PolicyFormat.Value, validate : Boolean, xsdEngine : String) : Unit = {
+    // todo: replace this shim with full YAML support in other methods
     //
     // Generate the XSLTExec
     //
-    val mapExec = generateXSLExec (policy, isJSON, validate, xsdEngine)
+    val mapExec = policyFormat match {
+      case XML =>
+        generateXSLExec (policy, false, validate, xsdEngine)
+      case JSON =>
+        generateXSLExec (policy, true, validate, xsdEngine)
+      case YAML =>
+        generateXSLExec (parseYamlNode(new StreamSource(policy.getSystemId)), validate, xsdEngine)
+    }
 
     //
     //  Run the generate XSL on the assertion
     //
-    convertAssertion(mapExec, assertion, dest, outputSAML, isJSON)
+    convertAssertion(mapExec, assertion, dest, outputSAML, !XML.equals(policyFormat))
   }
 
   def convertAssertion (policyExec : XsltExecutable, assertion : Source, dest : Destination, outputSAML : Boolean, toJSON : Boolean) : Unit = {
