@@ -48,6 +48,7 @@ object PolicyFormat extends Enumeration {
   def fromPath(policyPath: String): PolicyFormat.Value = {
     // todo: handle no instance of '.'
     // todo: handle no extension
+    // todo: add support for "yml" file extension
     val policyExtension = policyPath.substring(policyPath.lastIndexOf('.') + 1).toLowerCase
     withName(policyExtension)
   }
@@ -240,6 +241,7 @@ object AttributeMapper {
         outPolicyXML.getXdmNode.asSource
       case PolicyFormat.XML =>
         policy
+      // todo: add default match -- throw an exception if the policy format is not supported
     }
 
     val policySrc = {
