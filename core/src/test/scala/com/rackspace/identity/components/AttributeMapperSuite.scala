@@ -83,10 +83,10 @@ class AttributeMapperSuite extends AttributeMapperBase {
     val dest = new XdmDestination
     AttributeMapper.convertAssertion (
       new StreamSource(map),
+      PolicyFormat.withName(mapFormat),
       new StreamSource(assertFile),
       dest,
       true,
-      PolicyFormat.withName(mapFormat),
       true,
       v)
     dest.getXdmNode.asSource

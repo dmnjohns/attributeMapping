@@ -44,6 +44,13 @@ object PolicyFormat extends Enumeration {
   val XML = Value("xml")
   val JSON = Value("json")
   val YAML = Value("yaml")
+
+  def fromPath(policyPath: String): PolicyFormat.Value = {
+    // todo: handle no instance of '.'
+    // todo: handle no extension
+    val policyExtension = policyPath.substring(policyPath.lastIndexOf('.') + 1).toLowerCase
+    withName(policyExtension)
+  }
 }
 
 import com.rackspace.identity.components.XSDEngine._
@@ -191,6 +198,7 @@ object AttributeMapper {
     bch.getDocumentNode.asSource
   }
 
+  // todo: use PolicyFormat parameter to determine contents of Source
   def validatePolicy (policy : Source, engineStr : String) : Source = {
     val docBuilder = processor.newDocumentBuilder
     val xdmPolicy = docBuilder.build(policy)
@@ -220,15 +228,18 @@ object AttributeMapper {
     parseJsonNode(new StreamSource(bin))
   }
 
-  def generateXSL (policy : Source, xsl : Destination, isJSON : Boolean, validate : Boolean, xsdEngine : String) : Unit = {
-    val policySourceConv1 = {
-      if (isJSON) {
+  def generateXSL (policy : Source, policyFormat : PolicyFormat.Value, xsl : Destination, validate : Boolean, xsdEngine : String) : Unit = {
+    val policySourceConv1 = policyFormat match {
+      case PolicyFormat.YAML =>
+        val outPolicyXML = new XdmDestination
+        policy2XML(parseYamlNode(policy.asInstanceOf[StreamSource]), outPolicyXML)
+        outPolicyXML.getXdmNode.asSource
+      case PolicyFormat.JSON =>
         val outPolicyXML = new XdmDestination
         policy2XML(policy.asInstanceOf[StreamSource], outPolicyXML)
         outPolicyXML.getXdmNode.asSource
-      } else {
+      case PolicyFormat.XML =>
         policy
-      }
     }
 
     val policySrc = {
@@ -249,13 +260,13 @@ object AttributeMapper {
     val outPolicyXML = new XdmDestination
     policy2XML(policy, outPolicyXML)
 
-    generateXSL(outPolicyXML.getXdmNode.asSource, xsl, false, validate, xsdEngine)
+    generateXSL(outPolicyXML.getXdmNode.asSource, PolicyFormat.XML, xsl, validate, xsdEngine)
   }
 
-  def generateXSLExec (policy : Source, isJSON : Boolean, validate : Boolean, xsdEngine : String) : XsltExecutable = {
+  def generateXSLExec (policy : Source, policyFormat : PolicyFormat.Value, validate : Boolean, xsdEngine : String) : XsltExecutable = {
     val outXSL = new XdmDestination
 
-    generateXSL (policy, outXSL, isJSON, validate, xsdEngine)
+    generateXSL (policy, policyFormat, outXSL, validate, xsdEngine)
     compiler.compile(outXSL.getXdmNode.asSource)
   }
 
@@ -267,7 +278,7 @@ object AttributeMapper {
   }
 
   def generateXSLExec (policy : Document, validate : Boolean, xsdEngine : String) : XsltExecutable = {
-    generateXSLExec (new DOMSource(policy), false, validate, xsdEngine)
+    generateXSLExec (new DOMSource(policy), PolicyFormat.XML, validate, xsdEngine)
   }
 
   def parseJsonNode (source : StreamSource) : JsonNode = {
@@ -321,21 +332,12 @@ object AttributeMapper {
     evaluator.run()
   }
 
-  // todo: Is it alright if the YAML support change is not backwards compatible?
-  def convertAssertion (policy : Source, assertion : Source, dest : Destination, outputSAML : Boolean,
-                        policyFormat : PolicyFormat.Value, validate : Boolean, xsdEngine : String) : Unit = {
-    // todo: replace this shim with full YAML support in other methods
+  def convertAssertion (policy : Source, policyFormat : PolicyFormat.Value, assertion : Source, dest : Destination,
+                        outputSAML : Boolean, validate : Boolean, xsdEngine : String) : Unit = {
     //
     // Generate the XSLTExec
     //
-    val mapExec = policyFormat match {
-      case XML =>
-        generateXSLExec (policy, false, validate, xsdEngine)
-      case JSON =>
-        generateXSLExec (policy, true, validate, xsdEngine)
-      case YAML =>
-        generateXSLExec (parseYamlNode(new StreamSource(policy.getSystemId)), validate, xsdEngine)
-    }
+    val mapExec = generateXSLExec (policy, policyFormat, validate, xsdEngine)
 
     //
     //  Run the generate XSL on the assertion
